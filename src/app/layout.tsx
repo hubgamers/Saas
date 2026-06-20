@@ -3,6 +3,10 @@ import Link from "next/link";
 import { appNavigation } from "@/config/navigation";
 import { siteConfig } from "@/config/site";
 import "./globals.css";
+import { Geist } from "next/font/google";
+import { cn } from "@/lib/utils";
+
+const geist = Geist({ subsets: ['latin'], variable: '--font-sans' });
 
 export const metadata: Metadata = {
   title: siteConfig.name,
@@ -15,23 +19,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="fr">
+    <html lang="fr" className={cn("font-sans", geist.variable)}>
       <body>
-        <div className="shell">
-          <header className="topbar">
-            <Link className="brand" href="/">
-              {siteConfig.name}
-            </Link>
-            <nav className="nav" aria-label="Navigation principale">
-              {appNavigation.map((item) => (
-                <Link href={item.href} key={item.href}>
-                  {item.label}
-                </Link>
-              ))}
-            </nav>
-          </header>
-          {children}
-        </div>
+        {children}
       </body>
     </html>
   );

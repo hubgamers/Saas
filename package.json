@@ -11,7 +11,10 @@
     "make:module": "node scripts/make-modules.mjs module",
     "make:prisma": "node scripts/make-prisma.mjs",
     "check:modules": "node scripts/check-modules.mjs",
-    "test:generators": "node scripts/test-generators.mjs"
+    "test:generators": "node scripts/test-generators.mjs",
+    "seed": "node scripts/run-seed.mjs",
+    "seed:check": "node scripts/run-seed.mjs --check",
+    "db:seed": "prisma db seed"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.8.0",

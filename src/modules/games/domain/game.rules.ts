@@ -1,0 +1,3 @@
+export function assertCanCreateGame() {
+  return;
+}

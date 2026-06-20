@@ -6,3 +6,553 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+model Game {
+  id          String       @id @default(cuid())
+  name        String
+  platform    String
+  tournaments Tournament[]
+  createdAt   DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime     @updatedAt @db.Timestamptz(3)
+}
+
+model Match {
+  id           String             @id @default(cuid())
+  phaseId      String
+  phase        TournamentPhase    @relation(fields: [phaseId], references: [id])
+  roundNumber  Int
+  teamOneId    String
+  teamOne      Team               @relation("MatchTeamOne", fields: [teamOneId], references: [id])
+  teamTwoId    String
+  teamTwo      Team               @relation("MatchTeamTwo", fields: [teamTwoId], references: [id])
+  winnerId     String?
+  winner       Team?              @relation("MatchWinner", fields: [winnerId], references: [id])
+  scheduledAt  DateTime           @db.Timestamptz(3)
+  startedAt    DateTime?          @db.Timestamptz(3)
+  endedAt      DateTime?          @db.Timestamptz(3)
+  status       MatchStatus
+  scoreTeamOne Int?
+  scoreTeamTwo Int?
+  participants MatchParticipant[]
+  createdAt    DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime           @updatedAt @db.Timestamptz(3)
+
+  @@index([phaseId])
+  @@index([teamOneId])
+  @@index([teamTwoId])
+  @@index([winnerId])
+}
+
+model Organization {
+  id            String               @id @default(cuid())
+  name          String
+  ownerId       String
+  owner         User                 @relation("OrganizationOwner", fields: [ownerId], references: [id])
+  slug          String               @unique
+  logoUrl       String?
+  tournaments   Tournament[]
+  teams         Team[]
+  events        Event[]
+  members       OrganizationMember[]
+  auditLogs     AuditLog[]
+  subscriptions Subscription[]
+  overlayThemes OverlayTheme[]
+  createdAt     DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime             @updatedAt @db.Timestamptz(3)
+
+  @@index([ownerId])
+}
+
+model Player {
+  id        String   @id @default(cuid())
+  teamId    String
+  team      Team     @relation(fields: [teamId], references: [id])
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  nickname  String
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@unique([teamId, userId])
+  @@index([teamId])
+  @@index([userId])
+}
+
+model Registration {
+  id             String             @id @default(cuid())
+  tournamentId   String
+  tournament     Tournament         @relation(fields: [tournamentId], references: [id])
+  teamId         String
+  team           Team               @relation(fields: [teamId], references: [id])
+  registeredById String
+  registeredBy   User               @relation("RegistrationUser", fields: [registeredById], references: [id])
+  status         RegistrationStatus
+  createdAt      DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime           @updatedAt @db.Timestamptz(3)
+
+  @@unique([tournamentId, teamId])
+  @@index([tournamentId])
+  @@index([teamId])
+  @@index([registeredById])
+}
+
+model Team {
+  id                String             @id @default(cuid())
+  organizationId    String?
+  organization      Organization?      @relation(fields: [organizationId], references: [id])
+  name              String
+  logoUrl           String?
+  managerId         String
+  manager           User               @relation("TeamManager", fields: [managerId], references: [id])
+  status            TeamStatus
+  players           Player[]
+  participants      Participant[]
+  matchParticipants MatchParticipant[]
+  registrations     Registration[]
+  teamOneMatches    Match[]            @relation("MatchTeamOne")
+  teamTwoMatches    Match[]            @relation("MatchTeamTwo")
+  wonMatches        Match[]            @relation("MatchWinner")
+  createdAt         DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime           @updatedAt @db.Timestamptz(3)
+
+  @@index([organizationId])
+  @@index([managerId])
+}
+
+model Tournament {
+  id                String            @id @default(cuid())
+  name              String
+  gameId            String
+  game              Game              @relation(fields: [gameId], references: [id])
+  organizationId    String
+  organization      Organization      @relation(fields: [organizationId], references: [id])
+  description       String?
+  format            TournamentFormat
+  maxTeams          Int
+  maxPlayerPerTeam  Int
+  registrationStart DateTime          @db.Timestamptz(3)
+  registrationEnd   DateTime          @db.Timestamptz(3)
+  startDate         DateTime          @db.Timestamptz(3)
+  endDate           DateTime          @db.Timestamptz(3)
+  status            TournamentStatus
+  bannerUrl         String?
+  rules             String?
+  prizePool         String?
+  broadcasts        Broadcast[]
+  eventTournaments  EventTournament[]
+  phases            TournamentPhase[]
+  participants      Participant[]
+  registrations     Registration[]
+  createdAt         DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime          @updatedAt @db.Timestamptz(3)
+
+  @@index([gameId])
+  @@index([organizationId])
+}
+
+model TournamentPhase {
+  id           String                @id @default(cuid())
+  tournamentId String
+  tournament   Tournament            @relation(fields: [tournamentId], references: [id])
+  name         String
+  type         TournamentPhaseType
+  order        Int
+  startsAt     DateTime              @db.Timestamptz(3)
+  endsAt       DateTime?             @db.Timestamptz(3)
+  status       TournamentPhaseStatus
+  matches      Match[]
+  createdAt    DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime              @updatedAt @db.Timestamptz(3)
+
+  @@index([tournamentId])
+}
+
+model User {
+  id                String               @id @default(cuid())
+  username          String               @unique
+  passwordHash      String
+  firstName         String?
+  lastName          String?
+  email             String               @unique
+  avatarUrl         String?
+  players           Player[]
+  organizations     Organization[]       @relation("OrganizationOwner")
+  memberships       OrganizationMember[]
+  managedTeams      Team[]               @relation("TeamManager")
+  participants      Participant[]
+  matchParticipants MatchParticipant[]
+  auditLogs         AuditLog[]           @relation("AuditLogActor")
+  registrations     Registration[]       @relation("RegistrationUser")
+  createdAt         DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime             @updatedAt @db.Timestamptz(3)
+}
+
+enum BroadcastPlatform {
+  TWITCH
+  YOUTUBE
+  KICK
+  CUSTOM
+}
+
+enum BroadcastStatus {
+  PLANNED
+  LIVE
+  ENDED
+  CANCELLED
+}
+
+enum EventType {
+  ONLINE
+  LAN
+  HYBRID
+}
+
+enum EventStatus {
+  DRAFT
+  PUBLISHED
+  LIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum MatchStatus {
+  SCHEDULED
+  LIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum OverlayDataSourceType {
+  MATCH
+  BRACKET
+  STANDINGS
+  CUSTOM
+}
+
+enum OverlaySceneKind {
+  STARTING_SOON
+  SCOREBOARD
+  BRACKET
+  STANDINGS
+  LOWER_THIRD
+  INTERMISSION
+  ENDING
+  CUSTOM
+}
+
+enum OverlaySceneStatus {
+  DRAFT
+  READY
+  LIVE
+  ARCHIVED
+}
+
+enum RegistrationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum TeamStatus {
+  INVITED
+  ACTIVE
+  DISQUALIFIED
+}
+
+enum TournamentPhaseType {
+  GROUP_STAGE
+  BRACKET
+  SWISS
+  FINAL
+}
+
+enum TournamentPhaseStatus {
+  PLANNED
+  LIVE
+  COMPLETED
+}
+
+enum TournamentFormat {
+  SINGLE_ELIMINATION
+  DOUBLE_ELIMINATION
+  ROUND_ROBIN
+  SWISS
+  LEAGUE
+}
+
+enum TournamentStatus {
+  DRAFT
+  PUBLISHED
+  REGISTRATION_OPEN
+  REGISTRATION_CLOSED
+  LIVE
+  COMPLETED
+  CANCELLED
+}
+
+model Broadcast {
+  id            String            @id @default(cuid())
+  eventId       String
+  event         Event             @relation(fields: [eventId], references: [id])
+  tournamentId  String?
+  tournament    Tournament?       @relation(fields: [tournamentId], references: [id])
+  platform      BroadcastPlatform
+  channelName   String
+  streamUrl     String
+  status        BroadcastStatus
+  recordingUrl  String?
+  startedAt     DateTime?         @db.Timestamptz(3)
+  endedAt       DateTime?         @db.Timestamptz(3)
+  delaySeconds  Int?
+  overlayScenes OverlayScene[]
+  createdAt     DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime          @updatedAt @db.Timestamptz(3)
+
+  @@index([eventId])
+  @@index([tournamentId])
+}
+
+model EventTournament {
+  id           String     @id @default(cuid())
+  eventId      String
+  event        Event      @relation(fields: [eventId], references: [id])
+  tournamentId String
+  tournament   Tournament @relation(fields: [tournamentId], references: [id])
+  sortOrder    Int
+  createdAt    DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime   @updatedAt @db.Timestamptz(3)
+
+  @@unique([eventId, tournamentId])
+  @@index([eventId])
+  @@index([tournamentId])
+}
+
+model Event {
+  id               String            @id @default(cuid())
+  organizationId   String
+  organization     Organization      @relation(fields: [organizationId], references: [id])
+  name             String
+  slug             String
+  description      String?
+  type             EventType
+  startDate        DateTime          @db.Timestamptz(3)
+  endDate          DateTime          @db.Timestamptz(3)
+  status           EventStatus
+  venueName        String?
+  venueAddress     String?
+  bannerUrl        String?
+  broadcasts       Broadcast[]
+  eventTournaments EventTournament[]
+  createdAt        DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime          @updatedAt @db.Timestamptz(3)
+
+  @@unique([organizationId, slug])
+  @@index([organizationId])
+}
+
+model OverlayAccessToken {
+  id         String       @id @default(cuid())
+  sceneId    String
+  scene      OverlayScene @relation(fields: [sceneId], references: [id])
+  label      String
+  tokenHash  String
+  expiresAt  DateTime?    @db.Timestamptz(3)
+  revokedAt  DateTime?    @db.Timestamptz(3)
+  lastUsedAt DateTime     @db.Timestamptz(3)
+  createdAt  DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime     @updatedAt @db.Timestamptz(3)
+
+  @@unique([tokenHash])
+  @@index([sceneId])
+}
+
+model OverlayDataSource {
+  id                     String                @id @default(cuid())
+  sceneId                String
+  scene                  OverlayScene          @relation(fields: [sceneId], references: [id])
+  name                   String
+  type                   OverlayDataSourceType
+  endpointUrl            String
+  refreshIntervalSeconds Int
+  payloadMappingJson     Json?
+  isEnabled              Boolean
+  createdAt              DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt              DateTime              @updatedAt @db.Timestamptz(3)
+
+  @@index([sceneId])
+}
+
+model OverlayScene {
+  id                  String               @id @default(cuid())
+  broadcastId         String
+  broadcast           Broadcast            @relation(fields: [broadcastId], references: [id])
+  themeId             String?
+  theme               OverlayTheme?        @relation(fields: [themeId], references: [id])
+  name                String
+  kind                OverlaySceneKind
+  status              OverlaySceneStatus
+  isActive            Boolean
+  configJson          Json?
+  customCss           String?
+  overlayAccessTokens OverlayAccessToken[]
+  overlayDataSources  OverlayDataSource[]
+  createdAt           DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime             @updatedAt @db.Timestamptz(3)
+
+  @@unique([broadcastId, name])
+  @@index([broadcastId])
+  @@index([themeId])
+}
+
+model OverlayTheme {
+  id             String         @id @default(cuid())
+  organizationId String
+  organization   Organization   @relation(fields: [organizationId], references: [id])
+  name           String
+  primaryColor   String
+  secondaryColor String
+  accentColor    String
+  fontFamily     String?
+  logoUrl        String?
+  backgroundUrl  String?
+  overlayScenes  OverlayScene[]
+  createdAt      DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime       @updatedAt @db.Timestamptz(3)
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+enum OrganizationMemberRole {
+  OWNER
+  ADMIN
+  STAFF
+  CASTER
+  REFEREE
+  VIEWER
+}
+
+enum ParticipantType {
+  TEAM
+  USER
+}
+
+enum ParticipantStatus {
+  INVITED
+  REGISTERED
+  CHECKED_IN
+  DISQUALIFIED
+}
+
+enum SubscriptionPlan {
+  FREE
+  STARTER
+  PRO
+  ENTERPRISE
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+}
+
+model AuditLog {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  actorId        String
+  actor          User         @relation("AuditLogActor", fields: [actorId], references: [id])
+  action         String
+  entityType     String
+  entityId       String?
+  metadataJson   Json?
+  createdAt      DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime     @updatedAt @db.Timestamptz(3)
+
+  @@index([organizationId])
+  @@index([actorId])
+  @@index([entityId])
+}
+
+model MatchParticipant {
+  id            String      @id @default(cuid())
+  matchId       String
+  match         Match       @relation(fields: [matchId], references: [id])
+  participantId String
+  participant   Participant @relation(fields: [participantId], references: [id])
+  teamId        String?
+  team          Team?       @relation(fields: [teamId], references: [id])
+  userId        String?
+  user          User?       @relation(fields: [userId], references: [id])
+  score         Int?
+  placement     Int?
+  isWinner      Boolean
+  createdAt     DateTime    @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime    @updatedAt @db.Timestamptz(3)
+
+  @@unique([matchId, participantId])
+  @@index([matchId])
+  @@index([participantId])
+  @@index([teamId])
+  @@index([userId])
+}
+
+model OrganizationMember {
+  id             String                 @id @default(cuid())
+  organizationId String
+  organization   Organization           @relation(fields: [organizationId], references: [id])
+  userId         String
+  user           User                   @relation(fields: [userId], references: [id])
+  role           OrganizationMemberRole
+  createdAt      DateTime               @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime               @updatedAt @db.Timestamptz(3)
+
+  @@unique([organizationId, userId])
+  @@index([organizationId])
+  @@index([userId])
+}
+
+model Participant {
+  id                String             @id @default(cuid())
+  tournamentId      String
+  tournament        Tournament         @relation(fields: [tournamentId], references: [id])
+  teamId            String?
+  team              Team?              @relation(fields: [teamId], references: [id])
+  userId            String?
+  user              User?              @relation(fields: [userId], references: [id])
+  type              ParticipantType
+  status            ParticipantStatus
+  matchParticipants MatchParticipant[]
+  createdAt         DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime           @updatedAt @db.Timestamptz(3)
+
+  @@unique([tournamentId, teamId])
+  @@unique([tournamentId, userId])
+  @@index([tournamentId])
+  @@index([teamId])
+  @@index([userId])
+}
+
+model Subscription {
+  id                   String             @id @default(cuid())
+  organizationId       String
+  organization         Organization       @relation(fields: [organizationId], references: [id])
+  plan                 SubscriptionPlan
+  status               SubscriptionStatus
+  stripeCustomerId     String
+  stripeSubscriptionId String?
+  currentPeriodStart   DateTime           @db.Timestamptz(3)
+  currentPeriodEnd     DateTime           @db.Timestamptz(3)
+  createdAt            DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime           @updatedAt @db.Timestamptz(3)
+
+  @@unique([organizationId])
+  @@unique([stripeCustomerId])
+  @@unique([stripeSubscriptionId])
+  @@index([organizationId])
+  @@index([stripeCustomerId])
+  @@index([stripeSubscriptionId])
+}

@@ -75,6 +75,7 @@ npm run build
 npm run make --module invoices
 npm run make:prisma -- --dry-run
 npm run check:modules
+npm run test:generators
 ```
 
 Generer un module:
@@ -83,6 +84,7 @@ Generer un module:
 npm run make --module invoices
 npm run make --entity tasks
 npm run make -- module invoices number:string total:number dueAt:Date paid:boolean
+npm run make -- module articles title:string status:enum:DRAFT,PUBLISHED,ARCHIVED
 npm run make:module -- contacts firstName:string lastName:string email:string
 npm run make -- module billing --dry-run
 ```
@@ -95,8 +97,8 @@ Si le module existe deja, la meme commande ajoute les nouvelles properties sans 
 npm run make --module invoices dueAt:Date=optional customer:ManyToOne:User
 ```
 
-Types supportes par le generateur: `string`, `number`, `boolean`, `Date`.
-Pour un champ optionnel, utilise `=optional`, par exemple `description:string=optional`.
+Types supportes par le generateur: `string`, `number`, `boolean`, `Date`, `enum:VALUE_ONE,VALUE_TWO`.
+Pour un champ optionnel, utilise `=optional`, par exemple `description:string=optional` ou `status:enum:DRAFT,PUBLISHED=optional`.
 
 Relations supportees:
 
@@ -106,11 +108,16 @@ npm run make -- module posts title:string author:ManyToOne:User tags:ManyToMany:
 
 Le generateur ajoute alors `authorId` pour le `ManyToOne` et `tagIds` pour le `ManyToMany`.
 
+Les enums generent un type TypeScript strict dans l'entity, un lecteur `FormData` qui refuse les valeurs inconnues, et une enum Prisma quand tu lances `npm run make:prisma`.
+
 Verifier les modules generes:
 
 ```bash
 npm run check:modules
+npm run test:generators
 ```
+
+`test:generators` cree des modules temporaires, teste scalaires, enums, `ManyToOne`, `ManyToMany`, erreurs controlees, dry-run Prisma, puis nettoie les modules de test.
 
 Generer les modeles Prisma manquants depuis les entities generees:
 
@@ -150,3 +157,4 @@ stripe listen --forward-to localhost:3000/api/stripe/webhook
 - Remplacer `src/infrastructure/auth/session.ts` par une vraie session auth.
 - Ajouter des tests unitaires sur `domain/` et `application/`.
 - Ajouter les migrations Prisma selon la base cible.
+- Ajouter une mise a jour automatique des modeles Prisma existants quand une property est ajoutee apres coup.

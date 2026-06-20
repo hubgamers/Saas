@@ -6,6 +6,7 @@ import { stdin as input, stdout as output } from "node:process";
 const SCALAR_TYPES = ["string", "number", "boolean", "Date"];
 const RELATION_TYPES = ["ManyToOne", "ManyToMany"];
 const RESERVED_FIELDS = ["id", "createdAt", "updatedAt"];
+const ENUM_KIND = "enum";
 const colorEnabled = process.env.NO_COLOR !== "1" && process.env.NO_COLOR !== "true";
 const colors = {
   bold: (value) => paint(value, "1"),
@@ -202,6 +203,23 @@ async function askFields(existingFields = []) {
         continue;
       }
 
+      if (kind === ENUM_KIND) {
+        const values = await askEnumValues(rl);
+        const optional = await askBoolean(
+          rl,
+          `${colors.cyan("?")} Ce champ est-il optionnel ?`,
+          false,
+        );
+        const field = { kind, name, values, optional };
+        fields.push(field);
+        fieldNames.add(getFieldName(field));
+        fieldKeys.add(getFieldKey(field));
+        console.log(
+          `${colors.green("+")} Enum ajoutee: ${colors.bold(name)}: enum(${values.join(", ")})${optional ? "?" : ""}`,
+        );
+        continue;
+      }
+
       const relation = await askRelationType(rl);
       const target = await askRelationTarget(rl);
       const optional =
@@ -246,7 +264,7 @@ function validateInteractiveFieldName(name, fieldNames, fieldKeys, field = null)
 
 async function askKind(rl) {
   while (true) {
-    const answer = (await rl.question(`${colors.cyan("?")} Type de property: field ou relation [field]: `))
+    const answer = (await rl.question(`${colors.cyan("?")} Type de property: field, enum ou relation [field]: `))
       .trim()
       .toLowerCase();
 
@@ -258,7 +276,11 @@ async function askKind(rl) {
       return "relation";
     }
 
-    console.log(`${colors.yellow("!")} Reponds par field ou relation.`);
+    if (["enum", "e"].includes(answer)) {
+      return ENUM_KIND;
+    }
+
+    console.log(`${colors.yellow("!")} Reponds par field, enum ou relation.`);
   }
 }
 
@@ -301,6 +323,25 @@ async function askRelationTarget(rl) {
     }
 
     console.log(`${colors.yellow("!")} Utilise un nom d'entite en PascalCase, par exemple User ou Tag.`);
+  }
+}
+
+async function askEnumValues(rl) {
+  while (true) {
+    const rawValues = await rl.question(
+      `${colors.cyan("?")} Valeurs enum ${colors.dim("(separees par des virgules)")}: `,
+    );
+
+    try {
+      return parseEnumValues(rawValues);
+    } catch (error) {
+      if (error instanceof CliError) {
+        printError(error.message, error.hints);
+        continue;
+      }
+
+      throw error;
+    }
   }
 }
 
@@ -396,12 +437,12 @@ function readExistingFields(names, basePath) {
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean)
-    .map(parseExistingFieldLine)
+    .map((line) => parseExistingFieldLine(line, content))
     .filter(Boolean);
 }
 
-function parseExistingFieldLine(line) {
-  const match = /^([a-z][a-zA-Z0-9]*)(\?)?: (string\[\]|string|number|boolean|Date);$/.exec(
+function parseExistingFieldLine(line, entityContent) {
+  const match = /^([a-z][a-zA-Z0-9]*)(\?)?: (string\[\]|string|number|boolean|Date|[A-Z][a-zA-Z0-9]*);(?:\s*\/\/\s*@relation\(([A-Z][a-zA-Z0-9]*)\))?$/.exec(
     line,
   );
 
@@ -409,7 +450,7 @@ function parseExistingFieldLine(line) {
     return null;
   }
 
-  const [, rawName, optionalMarker, type] = match;
+  const [, rawName, optionalMarker, type, relationTarget] = match;
   const optional = Boolean(optionalMarker);
 
   if (type === "string" && rawName.endsWith("Id")) {
@@ -419,7 +460,7 @@ function parseExistingFieldLine(line) {
       kind: "relation",
       name,
       relation: "ManyToOne",
-      target: toPascalCase(name),
+      target: relationTarget,
       optional,
     };
   }
@@ -432,8 +473,24 @@ function parseExistingFieldLine(line) {
       kind: "relation",
       name,
       relation: "ManyToMany",
-      target: toPascalCase(singularName),
+      target: relationTarget,
       optional: false,
+    };
+  }
+
+  if (!SCALAR_TYPES.includes(type)) {
+    const values = readEnumValues(entityContent, type);
+
+    if (!values) {
+      return null;
+    }
+
+    return {
+      kind: ENUM_KIND,
+      name: rawName,
+      enumName: type,
+      values,
+      optional,
     };
   }
 
@@ -540,6 +597,17 @@ function parseFields(rawFields) {
 
     validateFieldName(name);
 
+    const enumValues = parseEnumType(type, relationTarget);
+
+    if (enumValues) {
+      return {
+        kind: ENUM_KIND,
+        name,
+        values: enumValues,
+        optional,
+      };
+    }
+
     const relation = parseRelationType(type, relationTarget);
 
     if (relation) {
@@ -554,12 +622,32 @@ function parseFields(rawFields) {
 
     if (!SCALAR_TYPES.includes(type)) {
       throw new CliError(
-        `Type invalide "${type}". Types: ${SCALAR_TYPES.join(", ")}. Relations: ManyToOne:Entity, ManyToMany:Entity.`,
+        `Type invalide "${type}". Types: ${SCALAR_TYPES.join(", ")}, enum. Relations: ManyToOne:Entity, ManyToMany:Entity.`,
       );
     }
 
     return { kind: "scalar", name, type, optional };
   });
+}
+
+function parseEnumType(type, rawValues) {
+  if (type.toLowerCase() === ENUM_KIND) {
+    if (!rawValues) {
+      throw new CliError("Une enum doit declarer ses valeurs.", [
+        "Exemple: status:enum:DRAFT,PUBLISHED,ARCHIVED",
+      ]);
+    }
+
+    return parseEnumValues(rawValues);
+  }
+
+  const match = /^enum\((.+)\)$/i.exec(type);
+
+  if (!match) {
+    return null;
+  }
+
+  return parseEnumValues(match[1]);
 }
 
 function parseRelationType(type, rawRelationTarget) {
@@ -588,6 +676,63 @@ function parseRelationType(type, rawRelationTarget) {
   };
 }
 
+function parseEnumValues(rawValues) {
+  const values = String(rawValues)
+    .split(",")
+    .map(normalizeEnumValue)
+    .filter(Boolean);
+  const uniqueValues = new Set(values);
+
+  if (values.length === 0) {
+    throw new CliError("Une enum doit contenir au moins une valeur.", [
+      "Exemple: DRAFT,PUBLISHED,ARCHIVED",
+    ]);
+  }
+
+  if (uniqueValues.size !== values.length) {
+    throw new CliError("Une enum contient des valeurs en doublon.", [
+      `Valeurs recues: ${values.join(", ")}`,
+    ]);
+  }
+
+  return values;
+}
+
+function normalizeEnumValue(value) {
+  const normalized = value
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/[\s-]+/g, "_")
+    .replace(/[^a-zA-Z0-9_]/g, "")
+    .replace(/_+/g, "_")
+    .replace(/(^_|_$)/g, "")
+    .toUpperCase();
+
+  if (!normalized) {
+    return "";
+  }
+
+  if (!/^[A-Z][A-Z0-9_]*$/.test(normalized)) {
+    throw new CliError(`Valeur enum invalide "${value}".`, [
+      "Utilise des valeurs comme DRAFT, PUBLISHED ou ARCHIVED.",
+    ]);
+  }
+
+  return normalized;
+}
+
+function readEnumValues(entityContent, enumName) {
+  const match = new RegExp(
+    `export const ${enumName}Values = \\[([^\\]]+)\\] as const;`,
+  ).exec(entityContent);
+
+  if (!match) {
+    return null;
+  }
+
+  return [...match[1].matchAll(/"([^"]+)"/g)].map((valueMatch) => valueMatch[1]);
+}
+
 function validateFieldName(name) {
   if (!/^[a-z][a-zA-Z0-9]*$/.test(name)) {
     throw new CliError(`Nom de champ invalide "${name}". Utilise du camelCase.`);
@@ -599,28 +744,41 @@ function validateFieldName(name) {
 }
 
 function buildFiles(names, fields) {
+  const preparedFields = prepareFields(names, fields);
   const repositoryName = `${names.className}Repository`;
   const repositoryVariableName = `${names.variableName}Repository`;
-  const entityFields = fields.map((field) => toEntityTypeLine(field)).join("");
-  const newEntityFields = fields.map((field) => toNewEntityTypeLine(field)).join("");
-  const dtoFields = fields.map((field) => toDtoTypeLine(field)).join("");
-  const dtoMapping = fields
+  const enumTypeNames = getEnumTypeNames(preparedFields);
+  const enumValueNames = getEnumValueNames(preparedFields);
+  const entityTypeImports = [names.className, ...enumTypeNames].join(", ");
+  const entityFields = preparedFields.map((field) => toEntityTypeLine(field)).join("");
+  const newEntityFields = preparedFields.map((field) => toNewEntityTypeLine(field)).join("");
+  const dtoFields = preparedFields.map((field) => toDtoTypeLine(field)).join("");
+  const dtoMapping = preparedFields
     .map((field) => `    ${toDtoMappingLine(names.variableName, field)}\n`)
     .join("");
-  const useCaseInputFields = fields.map((field) => toNewEntityTypeLine(field)).join("");
-  const useCaseCreateFields = fields
+  const useCaseInputFields = preparedFields.map((field) => toNewEntityTypeLine(field)).join("");
+  const useCaseCreateFields = preparedFields
     .map((field) => toUseCaseCreateLine(field))
     .join("");
-  const actionFormFields = fields
+  const actionFormFields = preparedFields
     .map((field) => `    ${toActionInputLine(field)}\n`)
     .join("");
-  const actionHelpers = buildActionHelpers(fields);
-  const actionSignature = fields.length > 0 ? "formData: FormData" : "";
+  const actionHelpers = buildActionHelpers(preparedFields);
+  const actionSignature = preparedFields.length > 0 ? "formData: FormData" : "";
+  const enumDefinitions = buildEnumDefinitions(preparedFields);
+  const useCaseEnumImport =
+    enumTypeNames.length > 0
+      ? `import type { ${enumTypeNames.join(", ")} } from "../../domain/${names.singularFileName}.entity";\n`
+      : "";
+  const actionEnumImport =
+    enumValueNames.length > 0
+      ? `import { ${enumValueNames.join(", ")} } from "../domain/${names.singularFileName}.entity";\n`
+      : "";
 
   return [
     {
       path: `domain/${names.singularFileName}.entity.ts`,
-      content: `${usesRelationReference(fields) ? relationReferenceType() : ""}export type ${names.className} = {
+      content: `${usesRelationReference(preparedFields) ? relationReferenceType() : ""}${enumDefinitions}export type ${names.className} = {
   id: string;
 ${entityFields}  createdAt: Date;
   updatedAt: Date;
@@ -649,7 +807,7 @@ export interface ${repositoryName} {
     },
     {
       path: `application/dtos/${names.singularFileName}.dto.ts`,
-      content: `${usesRelationReference(fields) ? dtoRelationReferenceType() : ""}import type { ${names.className} } from "../../domain/${names.singularFileName}.entity";
+      content: `${usesRelationReference(preparedFields) ? dtoRelationReferenceType() : ""}import type { ${entityTypeImports} } from "../../domain/${names.singularFileName}.entity";
 
 export type ${names.className}Dto = {
   id: string;
@@ -667,7 +825,7 @@ ${dtoMapping}    createdAt: ${names.variableName}.createdAt.toISOString(),
     {
       path: `application/use-cases/create-${names.singularFileName}.use-case.ts`,
       content: `import type { ${repositoryName} } from "../../domain/${names.singularFileName}.repository";
-import { assertCanCreate${names.className} } from "../../domain/${names.singularFileName}.rules";
+${useCaseEnumImport}import { assertCanCreate${names.className} } from "../../domain/${names.singularFileName}.rules";
 import { to${names.className}Dto } from "../dtos/${names.singularFileName}.dto";
 
 type Input = {
@@ -720,7 +878,7 @@ export const prisma${names.className}Repository: ${repositoryName} = {
       content: `"use server";
 
 import { revalidatePath } from "next/cache";
-import { create${names.className}UseCase } from "../application/use-cases/create-${names.singularFileName}.use-case";
+${actionEnumImport}import { create${names.className}UseCase } from "../application/use-cases/create-${names.singularFileName}.use-case";
 import { prisma${names.className}Repository } from "../infrastructure/prisma-${names.singularFileName}.repository";
 
 export async function create${names.className}Action(${actionSignature}) {
@@ -776,9 +934,54 @@ function dtoRelationReferenceType() {
 `;
 }
 
+function prepareFields(names, fields) {
+  return fields.map((field) => {
+    if (field.kind !== ENUM_KIND) {
+      return field;
+    }
+
+    return {
+      ...field,
+      enumName: field.enumName ?? buildEnumName(names, field.name),
+    };
+  });
+}
+
+function buildEnumName(names, fieldName) {
+  return `${names.className}${toPascalCase(fieldName)}`;
+}
+
+function getEnumTypeNames(fields) {
+  return fields
+    .filter((field) => field.kind === ENUM_KIND)
+    .map((field) => field.enumName);
+}
+
+function getEnumValueNames(fields) {
+  return getEnumTypeNames(fields).map((enumName) => `${enumName}Values`);
+}
+
+function buildEnumDefinitions(fields) {
+  return fields
+    .filter((field) => field.kind === ENUM_KIND)
+    .map((field) => {
+      const values = field.values.map((value) => `"${value}"`).join(", ");
+
+      return `export const ${field.enumName}Values = [${values}] as const;
+export type ${field.enumName} = (typeof ${field.enumName}Values)[number];
+
+`;
+    })
+    .join("");
+}
+
 function toEntityTypeLine(field) {
   if (field.kind === "scalar") {
     return `  ${field.name}${field.optional ? "?" : ""}: ${field.type};\n`;
+  }
+
+  if (field.kind === ENUM_KIND) {
+    return `  ${field.name}${field.optional ? "?" : ""}: ${field.enumName};\n`;
   }
 
   if (field.relation === "ManyToOne") {
@@ -793,17 +996,27 @@ function toNewEntityTypeLine(field) {
     return `  ${field.name}${field.optional ? "?" : ""}: ${field.type};\n`;
   }
 
-  if (field.relation === "ManyToOne") {
-    return `  ${field.name}Id${field.optional ? "?" : ""}: string;\n`;
+  if (field.kind === ENUM_KIND) {
+    return `  ${field.name}${field.optional ? "?" : ""}: ${field.enumName};\n`;
   }
 
-  return `  ${singularize(field.name)}Ids: string[];\n`;
+  if (field.relation === "ManyToOne") {
+    const relationComment = field.target ? ` // @relation(${field.target})` : "";
+    return `  ${field.name}Id${field.optional ? "?" : ""}: string;${relationComment}\n`;
+  }
+
+  const relationComment = field.target ? ` // @relation(${field.target})` : "";
+  return `  ${singularize(field.name)}Ids: string[];${relationComment}\n`;
 }
 
 function toDtoTypeLine(field) {
   if (field.kind === "scalar") {
     const type = field.type === "Date" ? "string" : field.type;
     return `  ${field.name}${field.optional ? "?" : ""}: ${type};\n`;
+  }
+
+  if (field.kind === ENUM_KIND) {
+    return `  ${field.name}${field.optional ? "?" : ""}: ${field.enumName};\n`;
   }
 
   if (field.relation === "ManyToOne") {
@@ -814,7 +1027,7 @@ function toDtoTypeLine(field) {
 }
 
 function toDtoMappingLine(variableName, field) {
-  if (field.kind === "scalar") {
+  if (field.kind === "scalar" || field.kind === ENUM_KIND) {
     return `${field.name}: ${toScalarDtoValue(variableName, field)},`;
   }
 
@@ -828,7 +1041,7 @@ function toDtoMappingLine(variableName, field) {
 function toScalarDtoValue(variableName, field) {
   const value = `${variableName}.${field.name}`;
 
-  if (field.type !== "Date") {
+  if (field.kind !== "scalar" || field.type !== "Date") {
     return value;
   }
 
@@ -836,7 +1049,7 @@ function toScalarDtoValue(variableName, field) {
 }
 
 function toUseCaseCreateLine(field) {
-  if (field.kind === "scalar") {
+  if (field.kind === "scalar" || field.kind === ENUM_KIND) {
     return `    ${field.name}: input.${field.name},\n`;
   }
 
@@ -848,6 +1061,11 @@ function toUseCaseCreateLine(field) {
 }
 
 function toActionInputLine(field) {
+  if (field.kind === ENUM_KIND) {
+    const required = field.optional ? "false" : "true";
+    return `${field.name}: readEnum(formData, "${field.name}", ${field.enumName}Values, ${required}),`;
+  }
+
   if (field.kind === "scalar") {
     return `${field.name}: ${toFormReader(field)},`;
   }
@@ -883,6 +1101,11 @@ function buildActionHelpers(fields) {
   fields.forEach((field) => {
     if (field.kind === "scalar") {
       helperTypes.add(field.type);
+      return;
+    }
+
+    if (field.kind === ENUM_KIND) {
+      helperTypes.add(ENUM_KIND);
       return;
     }
 
@@ -964,6 +1187,40 @@ function readDate(formData: FormData, key: string, required: boolean) {
 `);
   }
 
+  if (helperTypes.has(ENUM_KIND)) {
+    helpers.push(`function readEnum<TValues extends readonly string[]>(
+  formData: FormData,
+  key: string,
+  values: TValues,
+  required: true,
+): TValues[number];
+function readEnum<TValues extends readonly string[]>(
+  formData: FormData,
+  key: string,
+  values: TValues,
+  required: false,
+): TValues[number] | undefined;
+function readEnum<TValues extends readonly string[]>(
+  formData: FormData,
+  key: string,
+  values: TValues,
+  required: boolean,
+) {
+  const value = String(formData.get(key) ?? "").trim();
+
+  if (!value && !required) {
+    return undefined;
+  }
+
+  if (!values.includes(value)) {
+    throw new Error(\`Le champ \${key} doit etre une valeur autorisee: \${values.join(", ")}.\`);
+  }
+
+  return value;
+}
+`);
+  }
+
   if (helperTypes.has("stringList")) {
     helpers.push(`function readStringList(formData: FormData, key: string) {
   return formData
@@ -980,6 +1237,10 @@ function readDate(formData: FormData, key: string, required: boolean) {
 function formatField(field) {
   if (field.kind === "scalar") {
     return `${field.name}: ${field.type}${field.optional ? "?" : ""}`;
+  }
+
+  if (field.kind === ENUM_KIND) {
+    return `${field.name}: enum(${field.values.join(", ")})${field.optional ? "?" : ""}`;
   }
 
   return `${field.name}: ${field.relation}(${field.target})${field.optional ? "?" : ""}`;
@@ -1051,12 +1312,15 @@ Interactive:
 Non-interactive:
   npm run make -- module invoices number:string total:number dueAt:Date paid:boolean
   npm run make -- module posts author:ManyToOne:User tags:ManyToMany:Tag
+  npm run make -- module articles title:string status:enum:DRAFT,PUBLISHED
 
 Field types:
   string, number, boolean, Date
+  enum:VALUE_ONE,VALUE_TWO
   ManyToOne:Entity, ManyToMany:Entity
+  Quoted enum(VALUE_ONE,VALUE_TWO) also works.
   Quoted ManyToOne(Entity), ManyToMany(Entity) also work.
-  Add =optional to make a scalar or ManyToOne optional.
+  Add =optional to make a scalar, enum or ManyToOne optional.
   Quoted ? syntax also works, e.g. "description:string?".
 
 Options:

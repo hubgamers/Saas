@@ -15,41 +15,46 @@ const dryRun = process.argv.includes("--dry-run");
 const root = process.cwd();
 const modulesRoot = path.join(root, "src", "modules");
 const schemaPath = path.join(root, "prisma", "schema.prisma");
-const relationTargetAliases = new Map([
-  ["manager", "User"],
-  ["owner", "User"],
-  ["staff", "User"],
-  ["phase", "TournamentPhase"],
-  ["phas", "TournamentPhase"],
-  ["teamone", "Team"],
-  ["teamtwo", "Team"],
-  ["winner", "Team"],
-]);
 
 const schema = fs.readFileSync(schemaPath, "utf8");
 const existingModels = getExistingModels(schema);
+const existingEnums = getExistingEnums(schema);
 const knownModelNames = getKnownModelNames();
 const moduleModels = getModuleModels();
+const moduleEnums = getModuleEnums(moduleModels);
 const missingModels = moduleModels.filter((model) => !existingModels.has(model.name));
+const missingEnums = moduleEnums.filter((enumDef) => !existingEnums.has(enumDef.name));
 const missingModelNames = new Set(missingModels.map((model) => model.name));
 const inverseRelations = getInverseRelations(missingModels);
 const relationWarnings = getRelationWarnings(missingModels);
+const skippedRelationWarnings = getSkippedRelationWarnings(missingModels);
 
 console.log(colors.bold("Prisma schema generation"));
 
-if (missingModels.length === 0) {
-  console.log(`${colors.green("OK")} Aucun modele manquant.`);
+if (missingModels.length === 0 && missingEnums.length === 0) {
+  console.log(`${colors.green("OK")} Aucun modele ou enum manquant.`);
   process.exit(0);
 }
 
-console.log(`${colors.cyan("›")} Modeles a ajouter: ${missingModels.map((model) => model.name).join(", ")}`);
+if (missingEnums.length > 0) {
+  console.log(`${colors.cyan("›")} Enums a ajouter: ${missingEnums.map((enumDef) => enumDef.name).join(", ")}`);
+}
+
+if (missingModels.length > 0) {
+  console.log(`${colors.cyan("›")} Modeles a ajouter: ${missingModels.map((model) => model.name).join(", ")}`);
+}
 
 relationWarnings.forEach((warning) => {
   console.log(`${colors.yellow("!")} ${warning}`);
 });
+skippedRelationWarnings.forEach((warning) => {
+  console.log(`${colors.yellow("!")} ${warning}`);
+});
 
-const generated = missingModels
-  .map((model) => buildModel(model.name, model.fields, inverseRelations.get(model.name) ?? []))
+const generated = [
+  ...missingEnums.map(buildEnum),
+  ...missingModels.map((model) => buildModel(model.name, model.fields, inverseRelations.get(model.name) ?? [])),
+]
   .join("\n\n");
 
 if (dryRun) {
@@ -59,7 +64,9 @@ if (dryRun) {
 }
 
 fs.writeFileSync(schemaPath, `${schema.trimEnd()}\n\n${generated}\n`);
-console.log(`${colors.green("OK")} ${missingModels.length} modele(s) ajoute(s) dans prisma/schema.prisma`);
+console.log(
+  `${colors.green("OK")} ${missingModels.length} modele(s), ${missingEnums.length} enum(s) ajoute(s) dans prisma/schema.prisma`,
+);
 console.log(`${colors.dim("-")} Lance ensuite: npx prisma format && npx prisma generate`);
 
 function getModuleModels() {
@@ -97,7 +104,7 @@ function readModuleModel(moduleName) {
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean)
-    .map(parseEntityField)
+    .map((line) => parseEntityField(line, entity))
     .filter(Boolean);
 
   if (fields.length === 0 && isCustomModule(moduleName)) {
@@ -107,6 +114,7 @@ function readModuleModel(moduleName) {
   return {
     name: names.className,
     fields,
+    enums: fields.filter((field) => field.kind === "enum"),
   };
 }
 
@@ -124,8 +132,19 @@ function buildModel(modelName, fields, inverses = []) {
       return;
     }
 
+    if (field.kind === "enum") {
+      lines.push(`  ${field.name.padEnd(9)} ${field.enumName}${field.optional ? "?" : ""}`);
+      return;
+    }
+
     if (field.kind === "manyToOne") {
       const target = resolveRelationTarget(field.target);
+      if (!target) {
+        lines.push(`  ${`${field.name}Id`.padEnd(9)} String${field.optional ? "?" : ""}`);
+        indexes.push(`  @@index([${field.name}Id])`);
+        return;
+      }
+
       const relationName = relationTargetCounts.get(target) > 1 ? buildRelationName(modelName, field.name) : null;
       const relationArgs = [
         relationName ? `"${relationName}"` : null,
@@ -141,7 +160,19 @@ function buildModel(modelName, fields, inverses = []) {
       return;
     }
 
-    lines.push(`  ${field.name.padEnd(9)} ${resolveRelationTarget(field.target)}[]`);
+    const target = resolveRelationTarget(field.target);
+    if (!target) {
+      return;
+    }
+
+    const relationName =
+      relationTargetCounts.get(target) > 1
+        ? buildRelationName(modelName, field.name)
+        : null;
+
+    lines.push(
+      `  ${field.name.padEnd(9)} ${target}[]${relationName ? ` @relation("${relationName}")` : ""}`,
+    );
   });
 
   inverses.forEach((inverse) => {
@@ -156,8 +187,16 @@ function buildModel(modelName, fields, inverses = []) {
   return lines.join("\n");
 }
 
-function parseEntityField(line) {
-  const match = /^([a-z][a-zA-Z0-9]*)(\?)?: (string\[\]|string|number|boolean|Date);$/.exec(
+function buildEnum(enumDef) {
+  return [
+    `enum ${enumDef.name} {`,
+    ...enumDef.values.map((value) => `  ${value}`),
+    "}",
+  ].join("\n");
+}
+
+function parseEntityField(line, entityContent) {
+  const match = /^([a-z][a-zA-Z0-9]*)(\?)?: (string\[\]|string|number|boolean|Date|[A-Z][a-zA-Z0-9]*);(?:\s*\/\/\s*@relation\(([A-Z][a-zA-Z0-9]*)\))?$/.exec(
     line,
   );
 
@@ -165,7 +204,7 @@ function parseEntityField(line) {
     return null;
   }
 
-  const [, rawName, optionalMarker, type] = match;
+  const [, rawName, optionalMarker, type, relationTarget] = match;
   const optional = Boolean(optionalMarker);
 
   if (type === "string" && rawName.endsWith("Id")) {
@@ -174,7 +213,7 @@ function parseEntityField(line) {
     return {
       kind: "manyToOne",
       name: relationName,
-      target: relationName,
+      target: relationTarget ?? relationName,
       optional,
     };
   }
@@ -185,8 +224,24 @@ function parseEntityField(line) {
     return {
       kind: "manyToMany",
       name: pluralize(relationName),
-      target: relationName,
+      target: relationTarget ?? relationName,
       optional: false,
+    };
+  }
+
+  if (!["string", "number", "boolean", "Date"].includes(type)) {
+    const values = readEnumValues(entityContent, type);
+
+    if (!values) {
+      return null;
+    }
+
+    return {
+      kind: "enum",
+      name: rawName,
+      enumName: type,
+      values,
+      optional,
     };
   }
 
@@ -196,6 +251,29 @@ function parseEntityField(line) {
     type,
     optional,
   };
+}
+
+function readEnumValues(entityContent, enumName) {
+  const match = new RegExp(
+    `export const ${enumName}Values = \\[([^\\]]+)\\] as const;`,
+  ).exec(entityContent);
+
+  if (!match) {
+    return null;
+  }
+
+  return [...match[1].matchAll(/"([^"]+)"/g)].map((valueMatch) => valueMatch[1]);
+}
+
+function getModuleEnums(models) {
+  const enums = models.flatMap((model) => model.enums ?? []);
+
+  return [...new Map(enums.map((enumDef) => [enumDef.enumName, enumDef])).values()].map(
+    (enumDef) => ({
+      name: enumDef.enumName,
+      values: enumDef.values,
+    }),
+  );
 }
 
 function getKnownModelNames() {
@@ -208,12 +286,6 @@ function getKnownModelNames() {
 }
 
 function resolveRelationTarget(target) {
-  const aliasTarget = relationTargetAliases.get(target.toLowerCase());
-
-  if (aliasTarget && knownModelNames.has(aliasTarget)) {
-    return aliasTarget;
-  }
-
   const pascalTarget = toPascalCase(target);
 
   if (knownModelNames.has(pascalTarget)) {
@@ -238,7 +310,7 @@ function resolveRelationTarget(target) {
     return localizedMatch;
   }
 
-  return matchingModel ?? pascalTarget;
+  return matchingModel ?? null;
 }
 
 function getInverseRelations(models) {
@@ -252,7 +324,7 @@ function getInverseRelations(models) {
       .forEach((field) => {
         const target = resolveRelationTarget(field.target);
 
-        if (!missingModelNames.has(target)) {
+        if (!target || !missingModelNames.has(target)) {
           return;
         }
 
@@ -276,10 +348,21 @@ function getRelationWarnings(models) {
     model.fields
       .filter((field) => field.kind === "manyToOne" || field.kind === "manyToMany")
       .map((field) => resolveRelationTarget(field.target))
-      .filter((target) => existingModels.has(target))
+      .filter((target) => target && existingModels.has(target))
       .map(
         (target) =>
           `Relation vers modele existant ${target}: ajoute le champ inverse manuellement si Prisma le demande.`,
+      ),
+  );
+}
+
+function getSkippedRelationWarnings(models) {
+  return models.flatMap((model) =>
+    model.fields
+      .filter((field) => field.kind === "manyToMany" && !resolveRelationTarget(field.target))
+      .map(
+        (field) =>
+          `Relation ${model.name}.${field.name} ignoree: cible "${field.target}" inconnue. Regenere le module avec ${field.name}:ManyToMany:NomDuModele pour creer une vraie relation Prisma.`,
       ),
   );
 }
@@ -292,9 +375,11 @@ function getRelationTargetCounts(fields) {
   const counts = new Map();
 
   fields
-    .filter((field) => field.kind === "manyToOne")
+    .filter((field) => field.kind === "manyToOne" || field.kind === "manyToMany")
     .forEach((field) => {
       const target = resolveRelationTarget(field.target);
+      if (!target) return;
+
       counts.set(target, (counts.get(target) ?? 0) + 1);
     });
 
@@ -330,6 +415,14 @@ function toPrismaScalar(field) {
 function getExistingModels(schema) {
   return new Set(
     [...schema.matchAll(/^model\s+([A-Za-z][A-Za-z0-9]*)\s+\{/gm)].map(
+      (match) => match[1],
+    ),
+  );
+}
+
+function getExistingEnums(schema) {
+  return new Set(
+    [...schema.matchAll(/^enum\s+([A-Za-z][A-Za-z0-9]*)\s+\{/gm)].map(
       (match) => match[1],
     ),
   );

@@ -634,6 +634,7 @@ Mode non interactif:
 npm run make -- module invoices number:string total:number dueAt:Date paid:boolean
 npm run make:module -- contacts firstName:string lastName:string email:string
 npm run make -- module posts title:string author:ManyToOne:User tags:ManyToMany:Tag
+npm run make -- module articles title:string status:enum:DRAFT,PUBLISHED,ARCHIVED
 ```
 
 Options:
@@ -661,6 +662,7 @@ Types de champs supportes:
 - `number`
 - `boolean`
 - `Date`
+- `enum:VALUE_ONE,VALUE_TWO`
 - `ManyToOne:Entity`
 - `ManyToMany:Entity`
 
@@ -668,9 +670,17 @@ Pour un champ optionnel, utilise `=optional`, par exemple:
 
 ```bash
 npm run make -- module posts title:string excerpt:string=optional published:boolean
+npm run make -- module articles status:enum:DRAFT,PUBLISHED=optional
 ```
 
 La syntaxe quotee `"excerpt:string?"` fonctionne aussi, mais `=optional` est plus fiable avec zsh.
+
+Une enum genere:
+
+- une constante `EntityFieldValues` dans l'entity;
+- un type union TypeScript strict;
+- une validation dans la Server Action via `readEnum`;
+- une enum Prisma lors de `npm run make:prisma`.
 
 Pour les relations, le generateur reste volontairement neutre cote Prisma:
 
@@ -692,6 +702,7 @@ Elle controle notamment:
 - les fichiers attendus d'un module genere;
 - la presence de `Entity`, `NewEntity`, DTO, use cases, actions, queries;
 - la coherence des champs scalaires;
+- la coherence des enums et de leurs validations de formulaire;
 - la coherence des relations `ManyToOne` et `ManyToMany`;
 - les exports publics dans `index.ts`.
 
@@ -700,6 +711,14 @@ Les modules custom comme `projects` ou `billing` peuvent etre signales en warnin
 ```bash
 npm run check:modules -- --strict-generated
 ```
+
+Pour tester le generateur de bout en bout:
+
+```bash
+npm run test:generators
+```
+
+Cette commande cree des modules temporaires a nom unique, verifie scalaires, enums, ajout sur module existant, `ManyToOne`, `ManyToMany`, erreurs controlees et dry-run Prisma, puis supprime les modules temporaires.
 
 ## Generer Prisma
 
@@ -723,10 +742,19 @@ La commande est volontairement prudente:
 - elle ne modifie pas les modeles Prisma existants;
 - elle ignore les modules custom connus comme `billing` et `projects`;
 - elle genere les champs scalaires simples;
+- elle genere les enums manquantes;
 - elle genere `ManyToOne` via `fieldId` + `@relation`;
 - elle genere `ManyToMany` sous forme de relation Prisma implicite `Target[]`.
 
 Les choix avances restent a ajuster manuellement dans `prisma/schema.prisma`: `@unique`, `@@index`, `onDelete`, `Decimal`, table pivot explicite, noms de relations inverses.
+
+Ameliorations possibles pour aller plus loin:
+
+- mettre a jour automatiquement les modeles Prisma existants quand une property est ajoutee apres coup;
+- ajouter un type `Decimal` dedie aux montants;
+- generer des schemas de validation par module;
+- permettre une table pivot explicite pour les relations `ManyToMany` avec metadata;
+- proposer une commande `make:page` pour generer une page CRUD minimale.
 
 Pour ajouter une feature manuellement:
 

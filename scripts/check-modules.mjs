@@ -115,6 +115,11 @@ function checkEntity(moduleName, names, entityContent, fields) {
     if (field.kind === "manyToMany") {
       mustContain(moduleName, "entity relation", entityContent, `${field.name}Ids`);
     }
+
+    if (field.kind === "enum") {
+      mustContain(moduleName, "entity enum", entityContent, `export const ${field.enumName}Values`);
+      mustContain(moduleName, "entity enum", entityContent, `export type ${field.enumName}`);
+    }
   });
 }
 
@@ -183,8 +188,13 @@ function checkPresentation(moduleName, names, modulePath, fields) {
   mustContain(moduleName, "queries", queriesContent, `get${toPascalCase(names.moduleName)}`);
 
   fields.forEach((field) => {
-    if (field.kind === "scalar" || field.kind === "manyToOne") {
+    if (field.kind === "scalar" || field.kind === "enum" || field.kind === "manyToOne") {
       mustContain(moduleName, "action field", actionsContent, `"${field.inputName}"`);
+    }
+
+    if (field.kind === "enum") {
+      mustContain(moduleName, "action enum", actionsContent, `${field.enumName}Values`);
+      mustContain(moduleName, "action enum", actionsContent, "readEnum");
     }
 
     if (field.kind === "manyToMany") {
@@ -248,7 +258,7 @@ function readNewEntityFields(names, entityContent) {
 }
 
 function parseFieldLine(line) {
-  const match = /^([a-z][a-zA-Z0-9]*)(\?)?: (string\[\]|string|number|boolean|Date);$/.exec(
+  const match = /^([a-z][a-zA-Z0-9]*)(\?)?: (string\[\]|string|number|boolean|Date|[A-Z][a-zA-Z0-9]*);(?:\s*\/\/\s*@relation\([A-Z][a-zA-Z0-9]*\))?$/.exec(
     line,
   );
 
@@ -280,6 +290,17 @@ function parseFieldLine(line) {
       inputName: rawName,
       outputName: rawName,
       optional: false,
+    };
+  }
+
+  if (!["string", "number", "boolean", "Date"].includes(type)) {
+    return {
+      kind: "enum",
+      name: rawName,
+      inputName: rawName,
+      outputName: rawName,
+      enumName: type,
+      optional,
     };
   }
 

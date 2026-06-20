@@ -10,7 +10,8 @@
     "make": "node scripts/make-modules.mjs",
     "make:module": "node scripts/make-modules.mjs module",
     "make:prisma": "node scripts/make-prisma.mjs",
-    "check:modules": "node scripts/check-modules.mjs"
+    "check:modules": "node scripts/check-modules.mjs",
+    "test:generators": "node scripts/test-generators.mjs"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.8.0",

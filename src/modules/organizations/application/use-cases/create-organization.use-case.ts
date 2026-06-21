@@ -11,7 +11,7 @@ type Input = {
 };
 
 export async function createOrganizationUseCase(input: Input) {
-  assertCanCreateOrganization();
+  assertCanCreateOrganization(input);
 
   const organization = await input.organizationRepository.create({
     name: input.name,

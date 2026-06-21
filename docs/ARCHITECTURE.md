@@ -21,6 +21,7 @@ prisma/
 
 docs/
   ARCHITECTURE.md   # Documentation de cette architecture
+  CREATE_ORGANIZATION_FLOW.md # Exemple concret de mutation SaaS
 ```
 
 ## Principe principal

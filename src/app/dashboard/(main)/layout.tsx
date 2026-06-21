@@ -3,13 +3,16 @@ import { SiteHeader, SiteHeaderProvider } from "@/components/site-header"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { getOrganizationSwitcherState } from "@/modules/organizations/presentation/queries"
 import React from "react"
 
-export default function DashboardLayout({
+export default async function DashboardLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const { organizations, activeOrganization } = await getOrganizationSwitcherState()
+
   return (
     <SidebarProvider
       style={
@@ -21,7 +24,11 @@ export default function DashboardLayout({
     >
       <TooltipProvider>
         <SiteHeaderProvider>
-          <AppSidebar variant="inset" />
+          <AppSidebar
+            variant="inset"
+            organizations={organizations}
+            activeOrganization={activeOrganization}
+          />
           <SidebarInset>
             <SiteHeader />
             <div className="flex flex-1 flex-col">

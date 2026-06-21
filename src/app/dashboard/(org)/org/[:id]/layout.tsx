@@ -13,17 +13,23 @@ import {
     SidebarTrigger,
 } from "@/components/ui/sidebar"
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { getOrganizationSwitcherState } from "@/modules/organizations/presentation/queries";
 import { OrgSidebar } from "../../components/org-sidebar";
 
-export default function OrgLayoutDashboard({
+export default async function OrgLayoutDashboard({
     children,
 }: Readonly<{
     children: React.ReactNode;
 }>) {
+    const { organizations, activeOrganization } = await getOrganizationSwitcherState()
+
     return (
         <SidebarProvider>
             <TooltipProvider>
-                <OrgSidebar />
+                <OrgSidebar
+                    organizations={organizations}
+                    activeOrganization={activeOrganization}
+                />
                 <SidebarInset>
                     <header className="flex h-16 shrink-0 items-center gap-2 border-b px-4">
                         <SidebarTrigger className="-ml-1" />

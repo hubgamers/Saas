@@ -3,16 +3,13 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { getActiveOrganizationForCurrentUser } from "@/modules/organizations"
 import { CalendarDays, Plus, Trophy, Users, Swords } from "lucide-react"
 
-export default async function OrgDashboardPage() {
-  const activeOrganization = await getActiveOrganizationForCurrentUser()
-
+export default function TournamentDashboard() {
   return (
     <main className="min-h-screen bg-background px-6 py-8">
       <div className="mx-auto max-w-7xl space-y-8">
-
+        
         {/* Header */}
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
@@ -20,22 +17,16 @@ export default async function OrgDashboardPage() {
               Organisation tournoi
             </Badge>
             <h1 className="text-3xl font-bold tracking-tight">
-              {activeOrganization?.name ?? "Organisation"}
+              Tournoi Rocket League
             </h1>
             <p className="text-muted-foreground">
-              {activeOrganization
-                ? `/${activeOrganization.slug} - Gérez les équipes, les matchs, le planning et les résultats.`
-                : "Sélectionnez une organisation pour gérer vos tournois."}
+              Gérez les équipes, les matchs, le planning et les résultats.
             </p>
           </div>
 
           <Button>
             <Plus className="mr-2 h-4 w-4" />
-            Créer une équipe
-          </Button>
-          <Button>
-            <Plus className="mr-2 h-4 w-4" />
-            Créer un tournoi
+            Créer un match
           </Button>
         </div>
 
@@ -179,8 +170,12 @@ export default async function OrgDashboardPage() {
               </CardHeader>
 
               <CardContent className="space-y-4">
+                <Input placeholder="Nom du tournoi" defaultValue="Tournoi Rocket League" />
+                <Input placeholder="Jeu" defaultValue="Rocket League" />
+                <Input placeholder="Nombre maximum d’équipes" defaultValue="16" />
+
                 <Button className="w-full md:w-auto">
-                  Modifier mon organisation
+                  Enregistrer les modifications
                 </Button>
               </CardContent>
             </Card>

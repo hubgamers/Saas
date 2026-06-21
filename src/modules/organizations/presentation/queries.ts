@@ -37,3 +37,9 @@ export async function getOrganizationSwitcherState() {
     activeOrganization,
   };
 }
+
+export async function getActiveOrganizationForCurrentUser() {
+  const { activeOrganization } = await getOrganizationSwitcherState();
+
+  return activeOrganization;
+}

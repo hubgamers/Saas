@@ -20,25 +20,25 @@ import {
 const data = {
   navMain: [
     {
-      title: "Getting Started",
+      title: "Accès rapide",
       url: "#",
       items: [
         {
-          title: "Installation",
+          title: "Equipes",
           url: "#",
         },
         {
-          title: "Project Structure",
+          title: "Tournois",
           url: "#",
         },
       ],
     },
     {
-      title: "Build Your Application",
+      title: "Gestion équipes",
       url: "#",
       items: [
         {
-          title: "Routing",
+          title: "Mes équipes",
           url: "#",
         },
         {
